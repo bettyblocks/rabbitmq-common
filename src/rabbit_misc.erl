@@ -11,13 +11,20 @@
 %% The Original Code is RabbitMQ.
 %%
 %% The Initial Developer of the Original Code is GoPivotal, Inc.
-%% Copyright (c) 2007-2016 Pivotal Software, Inc.  All rights reserved.
+%% Copyright (c) 2007-2017 Pivotal Software, Inc.  All rights reserved.
 %%
 
 -module(rabbit_misc).
+
+-ignore_xref([{maps, get, 2}]).
+
 -include("rabbit.hrl").
 -include("rabbit_framing.hrl").
 -include("rabbit_misc.hrl").
+
+-ifdef(TEST).
+-export([decompose_pid/1, compose_pid/4]).
+-endif.
 
 -export([method_record_type/1, polite_pause/0, polite_pause/1]).
 -export([die/1, frame_error/2, amqp_error/4, quit/1,
@@ -33,7 +40,7 @@
 -export([confirm_to_sender/2]).
 -export([throw_on_error/2, with_exit_handler/2, is_abnormal_exit/1,
          filter_exit_map/2]).
--export([with_user/2, with_user_and_vhost/3]).
+-export([with_user/2]).
 -export([execute_mnesia_transaction/1]).
 -export([execute_mnesia_transaction/2]).
 -export([execute_mnesia_tx_with_tail/1]).
@@ -62,7 +69,7 @@
 -export([os_cmd/1]).
 -export([is_os_process_alive/1]).
 -export([gb_sets_difference/2]).
--export([version/0, otp_release/0, which_applications/0]).
+-export([version/0, otp_release/0, platform_and_version/0, which_applications/0]).
 -export([sequence_error/1]).
 -export([json_encode/1, json_decode/1, json_to_term/1, term_to_json/1]).
 -export([check_expiry/1]).
@@ -170,14 +177,12 @@
 -spec is_abnormal_exit(any()) -> boolean().
 -spec filter_exit_map(fun ((A) -> B), [A]) -> [B].
 -spec with_user(rabbit_types:username(), thunk(A)) -> A.
--spec with_user_and_vhost
-        (rabbit_types:username(), rabbit_types:vhost(), thunk(A)) -> A.
 -spec execute_mnesia_transaction(thunk(A)) -> A.
 -spec execute_mnesia_transaction(thunk(A), fun ((A, boolean()) -> B)) -> B.
 -spec execute_mnesia_tx_with_tail
         (thunk(fun ((boolean()) -> B))) -> B | (fun ((boolean()) -> B)).
 -spec ensure_ok(ok_or_error(), atom()) -> 'ok'.
--spec tcp_name(atom(), inet:ip_address(), rabbit_networking:ip_port()) ->
+-spec tcp_name(atom(), inet:ip_address(), rabbit_net:ip_port()) ->
           atom().
 -spec format_inet_error(atom()) -> string().
 -spec upmap(fun ((A) -> B), [A]) -> [B].
@@ -237,6 +242,7 @@
 -spec gb_sets_difference(?GB_SET_TYPE(), ?GB_SET_TYPE()) -> ?GB_SET_TYPE().
 -spec version() -> string().
 -spec otp_release() -> string().
+-spec platform_and_version() -> string().
 -spec which_applications() -> [{atom(), string(), string()}].
 -spec sequence_error([({'error', any()} | any())]) ->
           {'error', any()} | any().
@@ -436,7 +442,7 @@ enable_cover(Dirs) ->
                 end, ok, Dirs).
 
 start_cover(NodesS) ->
-    {ok, _} = cover:start([rabbit_nodes:make(N) || N <- NodesS]),
+    {ok, _} = cover:start([rabbit_nodes_common:make(N) || N <- NodesS]),
     ok.
 
 report_cover() -> report_cover(["."]).
@@ -526,9 +532,6 @@ with_user(Username, Thunk) ->
                     Thunk()
             end
     end.
-
-with_user_and_vhost(Username, VHostPath, Thunk) ->
-    with_user(Username, rabbit_vhost:with(VHostPath, Thunk)).
 
 execute_mnesia_transaction(TxFun) ->
     %% Making this a sync_transaction allows us to use dirty_read
@@ -732,9 +735,11 @@ node_to_fake_pid(Node) ->
 decompose_pid(Pid) when is_pid(Pid) ->
     %% see http://erlang.org/doc/apps/erts/erl_ext_dist.html (8.10 and
     %% 8.7)
-    <<131,103,100,NodeLen:16,NodeBin:NodeLen/binary,Id:32,Ser:32,Cre:8>>
-        = term_to_binary(Pid),
-    Node = binary_to_term(<<131,100,NodeLen:16,NodeBin:NodeLen/binary>>),
+    Node = node(Pid),
+    BinPid = term_to_binary(Pid),
+    ByteSize = byte_size(BinPid),
+    NodeByteSize = (ByteSize - 11),
+    <<131, 103, _NodePrefix:NodeByteSize/binary, Id:32, Ser:32, Cre:8>> = BinPid,
     {Node, Cre, Id, Ser}.
 
 compose_pid(Node, Cre, Id, Ser) ->
@@ -1021,6 +1026,9 @@ otp_release() ->
             %% or we couldn't read the file (so this is best we can do)
             erlang:system_info(otp_release)
     end.
+
+platform_and_version() ->
+    string:join(["Erlang/OTP", otp_release()], " ").
 
 %% application:which_applications(infinity) is dangerous, since it can
 %% cause deadlocks on shutdown. So we have to use a timeout variant,

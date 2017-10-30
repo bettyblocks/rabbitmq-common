@@ -11,7 +11,7 @@
 %% The Original Code is RabbitMQ.
 %%
 %% The Initial Developer of the Original Code is GoPivotal, Inc.
-%% Copyright (c) 2007-2016 Pivotal Software, Inc.  All rights reserved.
+%% Copyright (c) 2007-2017 Pivotal Software, Inc.  All rights reserved.
 %%
 
 -module(rabbit_event).
@@ -90,8 +90,9 @@ start_link() ->
 %%   notify(stats)
 
 init_stats_timer(C, P) ->
-    {ok, StatsLevel} = application:get_env(rabbit, collect_statistics),
-    {ok, Interval}   = application:get_env(rabbit, collect_statistics_interval),
+    %% If the rabbit app is not loaded - use default none:5000
+    StatsLevel = application:get_env(rabbit, collect_statistics, none),
+    Interval   = application:get_env(rabbit, collect_statistics_interval, 5000),
     setelement(P, C, #state{level = StatsLevel, interval = Interval,
                             timer = undefined}).
 
